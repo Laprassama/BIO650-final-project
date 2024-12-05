@@ -1,0 +1,113 @@
+---
+title: "650_FinalProject"
+author: "Jingyi Chen"
+date: "2024-12-03"
+output: html_document
+---
+```{r}
+### Data Cleaning ###
+library(NHANES)
+library(tidyverse)
+library(ggplot2)
+library(car)
+library(lmtest)
+library(ggfortify)
+data("NHANES")
+# Select Covariates and Summarize #
+sample <- NHANES %>%
+  dplyr::select(BPSysAve, Age, BMI, Gender, AlcoholDay, Diabetes, AlcoholYear, Alcohol12PlusYr, TotChol) %>%
+  filter(!is.na(BPSysAve), !is.na(AlcoholDay), !is.na(Alcohol12PlusYr), !is.na(AlcoholYear), !is.na(TotChol))
+# #
+sample <- sample %>%
+  mutate(Age_4Cat = case_when(
+    Age <= quantile(Age, 0.25) ~ 0,
+    Age > quantile(Age, 0.25) & Age <= quantile(Age, 0.5) ~ 1,
+    Age > quantile(Age, 0.5) & Age <= quantile(Age, 0.75) ~ 2,
+    Age > quantile(Age, 0.75) ~ 3
+  ))
+```
+
+```{r}
+## Regression ##
+## Model 1 ## Alc12plus not good, R^@ = 0.1906
+df <- lm(BPSysAve ~ AlcoholDay + Age + BMI + Gender + Diabetes + AlcoholYear + TotChol + Alcohol12PlusYr, data = sample)
+summary(df)
+
+## 模型2 ## interaction
+df2 <- lm(BPSysAve ~ AlcoholDay + Age + BMI + Age*BMI + Gender + Diabetes + AlcoholYear + TotChol + Alcohol12PlusYr, data = sample)
+summary(df2)
+
+## 模型3 ## interaction
+df3 <- lm(BPSysAve ~ AlcoholDay + Age + BMI + Age*BMI + AlcoholDay*Age + Gender + Diabetes + AlcoholYear + TotChol + Alcohol12PlusYr, data = sample)
+summary(df3)
+
+# 模型4 ## 全good R^2 = 0.2023
+df4 <- lm(BPSysAve ~ AlcoholDay * I(Age^2) + BMI + Gender, data = sample)
+summary(df4)
+
+## 模型5 ## 不全good R^2 = 0.1932(pass)
+#model_transformed <- lm(log(BPSysAve) ~ Alcohol12PlusYr + Age + BMI + Gender, data = sample)
+#summary(model_transformed)
+
+## 模型6 ##  R^2 = 0.2042
+df5 <- lm(log(BPSysAve) ~ AlcoholDay * I(Age^2) + log(BMI) + Gender, data = sample)
+summary(df5)
+```
+```{r}
+################################ LINE Assumption #####################################
+######## Linearity ##########
+# 自变量（预测变量）与因变量（响应变量）之间存在线性的关系
+crPlots(df)
+pairs(sample[, c("BPSysAve", "Alcohol12PlusYr", "Age", "BMI", "Gender")],
+      main = "散点图矩阵")
+######## Independence #########
+# 观测值之间相互独立。这意味着一个观测值的误差不应与另一个观测值的误差相关#
+dwtest(df2)
+######### Normality #########
+# 模型残差（预测值与实际值之间的差异）应服从正态分布。
+qqnorm(residuals(df))
+qqline(residuals(df), col = "red")
+hist(df$residuals)
+# Shapiro Test #
+shapiro.test(df$residuals)
+# Kolmogorov-Smirnov test#
+# ks_test <- ks.test(residuals(df), "pnorm", mean=mean(residuals(model)), sd=sd(residuals(model)))
+# print(ks_test)
+######### Equal Variance/Homoscedasticity ######
+plot(df$fitted.values, residuals(df),
+     xlab = "fitted.values",
+     ylab = "residuals",
+     main = "fitted.values vs residuals")
+abline(h = 0, col = "red")
+########## Multicollinearity ##########
+vif(df)
+##
+library(olsrr)
+ols_plot_dffits(df)
+ols_plot_cooksd_bar(df)
+ols_plot_resid_lev(df)
+```
+```{r}
+# Test how will effect R^2 #
+library(relaimpo)
+importance <- calc.relimp(df, type = "lmg")  
+print(importance)
+plot(importance)
+```
+
+```{r}
+################################ check outlier and influential points #####################################
+df3.dffits=dffits(df3)
+df3.dfbeta=dfbeta(df3)
+df3.D=cooks.distance(df3)
+df3.covratio=covratio(df3)
+
+olsrr::ols_plot_dffits(df3)
+olsrr::ols_plot_cooksd_chart(df3)
+
+
+head(df3.dffits[order(abs(df3.dffits), decreasing = T)])
+head(df3.D[order(abs(df3.D), decreasing = T)])
+
+
+```
