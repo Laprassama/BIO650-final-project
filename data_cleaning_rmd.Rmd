@@ -1,0 +1,210 @@
+---
+title: "Data Cleaning"
+author: "Sara Elfring"
+date: "2024-12-06"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(NHANES)
+library(tidyverse)
+library(ggplot2)
+library(gtsummary)
+```
+
+## First Look
+
+```{r}
+# Load in NHANES data
+data("NHANES")
+```
+
+```{r}
+# Select Covariates and Summarize
+NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  summary()
+```
+
+We start with `r nrow(NHANES)` samples.
+
+## Remove samples missing BPSysAve
+
+```{r}
+sample = NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(!is.na(BPSysAve))
+summary(sample)
+```
+
+There are now `r nrow(sample)` samples.
+
+## Remove samples younger than 18
+```{r}
+sample = sample |> 
+  filter(Age >= 18)
+```
+
+Alcohol-related questions were only asked of participants over the age of 18. There are now `r nrow(sample)` samples.
+
+## Remove Samples Missing Alcohol12PlusYr
+
+```{r}
+# Removing samples missing Alcohol12PlusYr 
+sample = sample |> 
+  filter(!is.na(Alcohol12PlusYr))
+summary(sample)
+
+# Save the samples missing Alcohol12PlusYr for Comparison
+excluded = NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), is.na(Alcohol12PlusYr))
+```
+
+We have `r nrow(sample)` samples.
+
+## Compare the samples missing and not missing Alcohol12PlusYr
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+
+The distribution of BPSysAve is similar between those missing Alcohol12PlusYr and those not missing it.
+
+## Remove Samples Missing BMI
+
+```{r}
+# Removing samples missing BMI 
+sample = sample |> 
+  filter(!is.na(BMI))
+summary(sample)
+
+# Save the samples missing BMI for Comparison
+excluded = NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), !is.na(Alcohol12PlusYr), is.na(BMI))
+```
+
+We have `r nrow(sample)` samples.
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+ggplot()+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+
+The BPSysAve values for samples missing BMI fall in the middle of the distribution of BPSysAve for samples not missing BMI.
+
+## Remove Samples Missing AlcoholDay
+
+```{r}
+# Removing samples missing AlcoholDay 
+sample = sample |> 
+  filter(!is.na(AlcoholDay))
+summary(sample)
+
+# Save the samples missing AlcoholDay for Comparison
+excluded = NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), !is.na(Alcohol12PlusYr), !is.na(BMI),
+         is.na(AlcoholDay))
+```
+
+We have `r nrow(sample)` samples.
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+The distribution of BPSysAve is similar now between those missing AlcoholDay and those not missing it.
+
+## Remove Samples Missing AlcoholYear
+
+```{r}
+# Removing samples missing AlcoholYear 
+sample = sample |> 
+  filter(!is.na(AlcoholYear))
+summary(sample)
+
+```
+There is only one observation missing AlcoholYear removed at this point.
+We have `r nrow(sample)` samples.
+
+## Remove outliers
+We removed subject 2489 that has an average of 82 drinks in a day that they drink. We believe this is likely a data error as that is an extremely high number of drinks, let alone alcoholic drinks, to consume in one day.
+```{r}
+# Remove outlier with average of 82 drinks in a day
+order(sample$AlcoholDay, decreasing = T)[1]
+
+sample = sample |> 
+  filter(AlcoholDay < 80)
+
+```
+
+
+## Summary of Our Sample
+
+```{r}
+# Number of samples
+nrow(sample)
+
+# Summarize continuous confounders
+sample |> 
+  summarize(mean(BPSysAve), sd(BPSysAve), mean(Age), sd(Age),
+            mean(BMI), sd(BMI))
+# Summarize continuous alcohol variables
+sample |> 
+  summarize(mean(AlcoholDay), sd(AlcoholDay),
+            mean(AlcoholYear), sd(AlcoholYear))
+
+# Summarize categorical variables
+sample |> 
+  summarize(prop_male = sum(Gender == 'male')/length(Gender), 
+            prop_drink = 
+              sum(Alcohol12PlusYr == 'Yes')/length(Alcohol12PlusYr))
+```
+# Making Table 1
+```{r}
+# Summary Statistics of all variables comparing missing to non-missing
+NHANES |> 
+  select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18) |> 
+  mutate(missing = if_else(is.na(BPSysAve) | is.na(Alcohol12PlusYr) |
+           is.na(BMI) | is.na(AlcoholDay) | is.na(AlcoholYear) | 
+             AlcoholDay > 80,
+           "Missing", "Sample")) |> 
+  tbl_summary(
+    by = missing,
+    statistic = list(all_continuous() ~ "{mean} ({sd})",
+                    all_categorical() ~ "{n} ({p}%)"),
+    missing = "no",
+    label = list(BPSysAve ~ "Combined Systolic Blood Pressure",
+                 AlcoholDay ~ "Average Alcoholic Drinks in 1 Day",
+                 AlcoholYear ~ "Days Drinking Alcohol in 1 Year",
+                 Alcohol12PlusYr ~ 
+                   "12 or more Alcoholic Drinks in 1 Year: Yes")
+  )
+```
+
