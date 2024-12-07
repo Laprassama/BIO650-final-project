@@ -1,0 +1,666 @@
+---
+title: "BIOSTAT 650 Final Project"
+author: "Group 13"
+date: "2024-12-03"
+output:
+  pdf_document: default
+  word_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(NHANES)
+library(tidyverse)
+library(ggplot2)
+library(car)
+library(olsrr)
+library(gt)
+library(broom)
+library(lmtest)
+library(dplyr)
+library(MASS)
+library(gtsummary)
+```
+
+## First Look
+
+```{r}
+# Load in NHANES data
+data("NHANES")
+```
+
+```{r}
+# Select Covariates and Summarize
+NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  summary()
+```
+
+We start with `r nrow(NHANES)` samples.
+
+## Remove samples missing BPSysAve
+
+```{r}
+sample = NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(!is.na(BPSysAve))
+summary(sample)
+```
+
+There are now `r nrow(sample)` samples.
+
+## Remove samples younger than 18
+```{r}
+sample = sample |> 
+  filter(Age >= 18)
+```
+
+Alcohol-related questions were only asked of participants over the age of 18. There are now `r nrow(sample)` samples.
+
+## Remove Samples Missing Alcohol12PlusYr
+
+```{r}
+# Removing samples missing Alcohol12PlusYr 
+sample = sample |> 
+  filter(!is.na(Alcohol12PlusYr))
+summary(sample)
+
+# Save the samples missing Alcohol12PlusYr for Comparison
+excluded = NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), is.na(Alcohol12PlusYr))
+```
+
+We have `r nrow(sample)` samples.
+
+## Compare the samples missing and not missing Alcohol12PlusYr
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+
+The distribution of BPSysAve is similar between those missing Alcohol12PlusYr and those not missing it.
+
+## Remove Samples Missing BMI
+
+```{r}
+# Removing samples missing BMI 
+sample = sample |> 
+  filter(!is.na(BMI))
+summary(sample)
+
+# Save the samples missing BMI for Comparison
+excluded = NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), !is.na(Alcohol12PlusYr), is.na(BMI))
+```
+
+We have `r nrow(sample)` samples.
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+ggplot()+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+
+The BPSysAve values for samples missing BMI fall in the middle of the distribution of BPSysAve for samples not missing BMI.
+
+## Remove Samples Missing AlcoholDay
+
+```{r}
+# Removing samples missing AlcoholDay 
+sample = sample |> 
+  filter(!is.na(AlcoholDay))
+summary(sample)
+
+# Save the samples missing AlcoholDay for Comparison
+excluded = NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18, !is.na(BPSysAve), !is.na(Alcohol12PlusYr), !is.na(BMI),
+         is.na(AlcoholDay))
+```
+
+We have `r nrow(sample)` samples.
+
+```{r}
+# Histogram comparison of BPSysAve
+ggplot()+
+  geom_histogram(data = sample, mapping = aes(x = BPSysAve), 
+                 fill = "blue", alpha = 0.5, color = "black")+
+  geom_histogram(data = excluded, mapping = aes(x = BPSysAve), 
+                 fill = "red", alpha = 0.5, color = "black")
+```
+The distribution of BPSysAve is similar now between those missing AlcoholDay and those not missing it.
+
+## Remove Samples Missing AlcoholYear
+
+```{r}
+# Removing samples missing AlcoholYear 
+sample = sample |> 
+  filter(!is.na(AlcoholYear))
+summary(sample)
+
+```
+There is only one observation missing AlcoholYear removed at this point.
+We have `r nrow(sample)` samples.
+
+## Remove outliers
+We removed subject 2489 that has an average of 82 drinks in a day that they drink. We believe this is likely a data error as that is an extremely high number of drinks, let alone alcoholic drinks, to consume in one day.
+```{r}
+# Remove outlier with average of 82 drinks in a day
+order(sample$AlcoholDay, decreasing = T)[1]
+
+sample = sample |> 
+  filter(AlcoholDay < 80)
+
+```
+
+
+## Summary of Our Sample
+
+```{r}
+# Number of samples
+nrow(sample)
+
+# Summarize continuous confounders
+sample |> 
+  summarize(mean(BPSysAve), sd(BPSysAve), mean(Age), sd(Age),
+            mean(BMI), sd(BMI))
+# Summarize continuous alcohol variables
+sample |> 
+  summarize(mean(AlcoholDay), sd(AlcoholDay),
+            mean(AlcoholYear), sd(AlcoholYear))
+
+# Summarize categorical variables
+sample |> 
+  summarize(prop_male = sum(Gender == 'male')/length(Gender), 
+            prop_drink = 
+              sum(Alcohol12PlusYr == 'Yes')/length(Alcohol12PlusYr))
+```
+# Making Table 1
+```{r}
+# Summary Statistics of all variables comparing missing to non-missing
+NHANES |> 
+  dplyr::select(BPSysAve, Age, BMI, Gender, Alcohol12PlusYr, 
+         AlcoholDay, AlcoholYear) |> 
+  filter(Age >= 18) |> 
+  mutate(missing = if_else(is.na(BPSysAve) | is.na(Alcohol12PlusYr) |
+           is.na(BMI) | is.na(AlcoholDay) | is.na(AlcoholYear) | 
+             AlcoholDay > 80,
+           "Missing", "Sample")) |> 
+  tbl_summary(
+    by = missing,
+    statistic = list(all_continuous() ~ "{mean} ({sd})",
+                    all_categorical() ~ "{n} ({p}%)"),
+    missing = "no",
+    label = list(BPSysAve ~ "Combined Systolic Blood Pressure",
+                 AlcoholDay ~ "Average Alcoholic Drinks in 1 Day",
+                 AlcoholYear ~ "Days Drinking Alcohol in 1 Year",
+                 Alcohol12PlusYr ~ 
+                   "12 or more Alcoholic Drinks in 1 Year: Yes")
+  )
+```
+
+
+
+## Raw Linear Regression Model
+```{r}
+# Model function
+df <- lm(log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender, data = sample)
+summary(df)
+
+# Making Table
+model_results <- tidy(df, conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    `95% CI` = paste0("(", round(conf.low, 3), ", ", round(conf.high, 3), ")"),
+    `p-value` = ifelse(p.value < 0.001, "< 0.001", round(p.value, 3))
+  ) %>%
+  select(term, estimate, `95% CI`, `p-value`) %>%
+  rename(Variables = term, Beta = estimate)
+# check multicollinearity
+vif_values <- vif(df)
+model_results <- model_results %>%
+  mutate(VIF = round(vif_values, 2))
+
+model_results %>%
+  gt() %>%
+  tab_header(
+    title = "Model Results",
+    subtitle = "Linear Regression: log(BPSysAve)"
+  ) %>%
+  fmt_number(columns = c(Beta), decimals = 3) %>%
+  cols_label(
+    Variables = "Variables",
+    Beta = "Beta",
+    `95% CI` = "95% CI",
+    `p-value` = "p-value",
+    VIF = "VIF"
+  ) %>%
+  tab_footnote(
+    footnote = "R²:0.1907, Adjusted R²: 0.1897"
+  ) %>%
+  tab_footnote(
+    footnote = "Female, Alcohol12PlusYrNO are selected as reference groups"
+  )
+```
+
+## LINE Assumption for Raw Regression Model
+```{r}
+## Linearity: check linear relationship between predictor variables and response variables
+# Using Partical Regression Plots
+car::avPlots(df)
+## Independence: check the residuals are independent of each other 
+# Using Durbin-Watson Tets
+dwtest(df)
+# Making Lagged Residual Plot
+residuals <- df$residuals
+lagged_residuals <- c(NA, residuals[-length(residuals)])
+plot(lagged_residuals, residuals, 
+     xlab = "Lagged Residuals (Residual[-1])", 
+     ylab = "Residuals", 
+     main = "Lagged Residual Plot")
+abline(h = 0, col = "red",  lty = 2)
+## Normality: check the residuals should be normally distributed
+# Using Histogram
+hist(df$residuals, breaks = 30, 
+     col = "lightblue", main = "Histogram of Residuals", 
+     xlab = "Residuals", probability = TRUE)
+x <- seq(min(df$residuals), max(df$residuals), length = 100)
+y <- dnorm(x, mean = mean(df$residuals), sd = sd(df$residuals))
+lines(x, y, col = "red", lwd = 2)
+# Using Q-Q Plot and shapiro-wiks test
+qqnorm(residuals(df))
+qqline(residuals(df), col = "red")
+# Shapiro Test #
+shapiro.test(df$residuals)
+## Equal Variance/Homoscedasticity: The variance of the residuals does not change with the fitted values
+# Using Residuals vs. Fitted Plot
+plot(df$fitted.values, residuals(df),
+     xlab = "fitted.values",
+     ylab = "residuals",
+     main = "fitted.values vs residuals")
+abline(h = 0, col = "red")
+```
+
+## Linear Regression Model with interaction
+```{r}
+## Model function
+df2 <- lm(log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender + Age*Alcohol12PlusYr + Age*AlcoholDay + Age*AlcoholYear, data = sample)
+summary(df2)
+
+model_results <- tidy(df2, conf.int = TRUE) %>%
+   filter(term != "(Intercept)") %>%
+  mutate(
+    `95% CI` = paste0("(", round(conf.low, 3), ", ", round(conf.high, 3), ")"),
+    `p-value` = ifelse(p.value < 0.001, "< 0.001", round(p.value, 3))
+  ) %>%
+  select(term, estimate, `95% CI`, `p-value`) %>%
+  rename(Variables = term, Beta = estimate)
+
+# check multicollinearity
+vif_values <- vif(df2)
+model_results <- model_results %>%
+  mutate(VIF = round(vif_values, 2)) 
+
+model_results %>%
+  gt() %>%
+  tab_header(
+    title = "Model Results",
+    subtitle = "Linear Regression: log(BPSysAve)"
+  ) %>%
+  fmt_number(columns = c(Beta), decimals = 3) %>%
+  cols_label(
+    Variables = "Variables",
+    Beta = "Beta",
+    `95% CI` = "95% CI",
+    `p-value` = "p-value",
+    VIF = "VIF"
+  ) %>%
+  tab_footnote(
+    footnote = "R²:0.1969, Adjusted R²: 0.1954"
+  ) %>%
+  tab_footnote(
+    footnote = "Female, Alcohol12PlusYrNO are selected as reference groups"
+  )
+```
+
+## LINE Assumption for Raw Regression Model
+```{r}
+## Linearity: check linear relationship between predictor variables and response variables
+# Using Partical Regression Plots
+car::avPlots(df2)
+## Independence: check the residuals are independent of each other 
+# Using Durbin-Watson Tets
+dwtest(df2)
+# Making Lagged Residual Plot
+residuals <- df2$residuals
+lagged_residuals <- c(NA, residuals[-length(residuals)])
+plot(lagged_residuals, residuals, 
+     xlab = "Lagged Residuals (Residual[-1])", 
+     ylab = "Residuals", 
+     main = "Lagged Residual Plot")
+abline(h = 0, col = "red",  lty = 2)
+## Normality: check the residuals should be normally distributed
+# Using Histogram
+hist(df2$residuals, breaks = 30, 
+     col = "lightblue", main = "Histogram of Residuals", 
+     xlab = "Residuals", probability = TRUE)
+x <- seq(min(df2$residuals), max(df2$residuals), length = 100)
+y <- dnorm(x, mean = mean(df2$residuals), sd = sd(df2$residuals))
+lines(x, y, col = "red", lwd = 2)
+# Using Q-Q Plot and shapiro-wiks test
+qqnorm(residuals(df2))
+qqline(residuals(df2), col = "red")
+# Shapiro Test #
+shapiro.test(df2$residuals)
+## Equal Variance/Homoscedasticity: The variance of the residuals does not change with the fitted values
+# Using Residuals vs. Fitted Plot
+plot(df2$fitted.values, residuals(df2),
+     xlab = "fitted.values",
+     ylab = "residuals",
+     main = "fitted.values vs residuals")
+abline(h = 0, col = "red")
+```
+## Check Outlier using interection model
+```{r}
+# Find outliers
+ols_plot_dffits(df2)
+ols_plot_cooksd_bar(df2)
+ols_plot_resid_lev(df2)
+```
+
+## Remove the outlier: observation 2489
+```{r}
+#rm.newdata <- sample[-c(2489),]
+#rm.df <- lm(log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender + Age*Alcohol12PlusYr + Age*AlcoholDay + Age*AlcoholYear, data = rm.newdata)
+#summary(df2)
+#summary(rm.df)
+#(rm.df$coef - df2$coef)/df2$coef*100
+```
+
+
+## check all the influential observation
+```{r}
+m.dffits=dffits(df2)
+m.dfbeta=dfbeta(df2)
+m.D=cooks.distance(df2)
+m.covratio=covratio(df2)
+m.h = hatvalues(df2)
+m.rs = rstudent(df2)
+m.sr = stdres(df2)
+
+head(m.h[order(abs(m.h), decreasing = T)])
+head(m.rs[order(abs(m.rs), decreasing = T)])
+head(m.sr[order(abs(m.sr), decreasing = T)])
+head(m.dffits[order(abs(m.dffits), decreasing = T)])
+head(m.D[order(abs(m.D), decreasing = T)])
+
+olsrr::ols_plot_dfbetas(df2)
+```
+
+
+##Use Stepwise model selection 
+```{r}
+stepwise <- 
+  function(full.model, initial.model, alpha.to.enter = 0.0, alpha.to.leave = 1.0, data = NULL) {
+    # Sanity check: alpha.to.enter should not be greater than alpha.to.leave.
+    if (alpha.to.enter > alpha.to.leave) {
+      warning("Your alpha-to-enter is greater than your alpha-to-leave, which could throw the function into an infinite loop.\n")
+      return(NA)
+    }
+    # Warning: horrible kludge coming!
+    # Acquire the full and initial models as formulas. If they are
+    # entered as formulas, convert them to get their environments
+    # squared away.
+    # Note: "showEnv = F" is necessary to avoid having an
+    # environment identifier break things if the model is
+    # defined inside a function.
+    if (is.character(full.model)) {
+      fm <- as.formula(full.model)
+    } else {
+      fm <- as.formula(capture.output(print(full.model, showEnv = F)))
+    }
+    if (is.character(initial.model)) {
+      im <- as.formula(initial.model)
+    } else {
+     im <- as.formula(capture.output(print(initial.model, showEnv = F)))
+    }
+    # Deal with a missing data argument.
+    if (is.null(data)) {
+      # Catch the use of "." in a formula when the data argument is null.
+      if ("." %in% all.vars(fm) | "." %in% all.vars(im)) {
+        warning("In order to use the shortcut '.' in a formula, you must explicitly specify the data source via the 'data' argument.\n")
+        return(NA)
+      } else {
+        # Use the parent environment.
+        data <- parent.frame()
+      }
+    }
+    # Fit the full model.
+    full <- lm(fm, data);
+    # Sanity check: do not allow an overspecified full model.
+    if (full$df.residual < 1) {
+      warning("Your full model does not have enough observations to properly estimate it.\n")
+      return(NA)
+    }
+    msef <- (summary(full)$sigma)^2;  # MSE of full model
+    n <- length(full$residuals);  # sample size
+    # Fit the initial model.
+    current <- lm(im, data);
+    # Process consecutive models until we break out of the loop.
+    while (TRUE) {
+      # Summarize the current model.
+      temp <- summary(current);
+      # Print the model description.
+      print(temp$coefficients);
+      # Get the size, MSE and Mallow's cp of the current model.
+      p <- dim(temp$coefficients)[1]; # size
+      mse <- (temp$sigma)^2; # MSE
+      cp <- (n - p)*mse/msef - (n - 2*p);  # Mallow's cp
+      # Show the fit statistics.
+      fit <- sprintf("\nS = %f, R-sq = %f, R-sq(adj) = %f, C-p = %f",
+                     temp$sigma, temp$r.squared, temp$adj.r.squared, cp);
+      # Show the fit itself.
+      write(fit, file = "");
+      write("=====", file = "");
+      # Try to drop a term (but only if more than one is left).
+      if (p > 1) {
+        # Look for terms that can be dropped based on F tests.
+        d <- drop1(current, test = "F");
+        # Find the term with largest p-value.
+        pmax <- suppressWarnings(max(d[, 6], na.rm = TRUE));
+        # If the term qualifies, drop the variable.
+        if (pmax > alpha.to.leave) {
+          # We have a candidate for deletion.
+          # Get the name of the variable to delete.
+          var <- rownames(d)[d[,6] == pmax];
+          # If an intercept is present, it will be the first name in the list.
+          # There also could be ties for worst p-value.
+          # Taking the second entry if there is more than one is a safe solution to both issues.
+          if (length(var) > 1) {
+            var <- var[2];
+          }
+          # Print out the variable to be dropped.
+          write(paste("--- Dropping", var, "\n"), file = "");
+          # Modify the formulat to drop the chosen variable (by subtracting it from the current formula).
+          f <- formula(current);
+          f <- as.formula(paste(f[2], "~", paste(f[3], var, sep = " - ")), env = environment(f));
+          # Fit the modified model and loop.
+          current <- lm(f, data);
+          next;
+        }
+      }
+      # If we get here, we failed to drop a term; try adding one.
+      # Note: add1 throws an error if nothing can be added (current == full), which we trap with tryCatch.
+      a <- tryCatch(
+        add1(current, full, test = "F"),
+        error = function(e) NULL
+      );
+      if (is.null(a)) {
+        # There are no unused variables (or something went splat), so we bail out.
+        break;
+      }
+      # Find the minimum p-value of any term (skipping the terms with no p-value). In case none of the remaining terms have a p-value (true of the intercept and any linearly dependent predictors), suppress warnings about an empty list. The test for a suitable candidate to drop will fail since pmin will be set to infinity.
+      pmin <- suppressWarnings(min(a[, 6], na.rm = TRUE));
+      if (pmin < alpha.to.enter) {
+        # We have a candidate for addition to the model. Get the variable's name.
+        var <- rownames(a)[a[,6] == pmin];
+        # We have the same issue with ties and the presence of an intercept term, and the same solution, as above.
+        if (length(var) > 1) {
+          var <- var[2];
+        }
+        # Print the variable being added.
+        write(paste("+++ Adding", var, "\n"), file = "");
+        # Add it to the current formula.
+        f <- formula(current);
+        f <- as.formula(paste(f[2], "~", paste(f[3], var, sep = " + ")), env = environment(f));
+        # Fit the modified model and loop.
+        current <- lm(f, data = data);
+        next;
+      }
+      # If we get here, we failed to make any changes to the model; time to declare victory and exit.
+      break;
+    }
+    current
+  }
+```
+ 
+
+```{r}
+forward_model = stepwise(initial.model = log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender,
+                        full.model =log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender + Age*Alcohol12PlusYr + Age*AlcoholDay + Age*AlcoholYear,alpha.to.enter =0.1,data=sample)
+```
+##Check backward elimination
+```{r}
+bw.stepwise <- 
+  function(full.model, alpha.to.rm = .1, data = NULL) {
+    
+    if (is.character(full.model)) {
+      fm <- as.formula(full.model)
+    } else {
+      fm <- as.formula(capture.output(print(full.model, showEnv = F)))
+    }
+    
+    # Fit the full model.
+    full <- lm(fm, data);
+    # Sanity check: do not allow an overspecified full model.
+    if (full$df.residual < 1) {
+      warning("Your full model does not have enough observations to properly estimate it.\n")
+      return(NA)
+    }
+    msef <- (summary(full)$sigma)^2;  # MSE of full model
+    n <- length(full$residuals);  # sample size
+    # Fit the initial model.
+    current <- full;
+    # Process consecutive models until we break out of the loop.
+    while (TRUE) {
+      # Summarize the current model.
+      temp <- summary(current);
+      # Get the size, MSE and Mallow's cp of the current model.
+      p <- dim(temp$coefficients)[1]; # size
+      mse <- (temp$sigma)^2; # MSE
+      cp <- (n - p)*mse/msef - (n - 2*p);  # Mallow's cp
+      # Show the fit statistics.
+      fit <- sprintf("\nS = %f, R-sq = %f, R-sq(adj) = %f, C-p = %f",
+                     temp$sigma, temp$r.squared, temp$adj.r.squared, cp);
+      # Try to drop a term (but only if more than one is left).
+      if (p > 1) {
+        # Look for terms that can be dropped based on F tests.
+        d <- drop1(current, test = "F");
+        # Find the term with largest p-value.
+        pmax <- suppressWarnings(max(d[, 6], na.rm = TRUE));
+        # If the term qualifies, drop the variable.
+        if (pmax > alpha.to.rm) {
+          # We have a candidate for deletion.
+          # Get the name of the variable to delete.
+          var <- rownames(d)[d[,6] == pmax];
+          # If an intercept is present, it will be the first name in the list.
+          # There also could be ties for worst p-value.
+          # Taking the second entry if there is 
+          # more than one is a safe solution to both issues.
+          if (length(var) > 1) {
+            var <- var[2];
+            if(var == "Sex" | var=="R_E") {var = c("Sex-R_E")}
+            if(var == "CurrentSmoker" | var == "Etoh") {var = c("CurrentSmoker-Etoh")}
+            if(var == "MI" | var == "Chf" | var == "Cad") {var= c("MI-Chf-Cad")}
+          }
+          # Print out the variable to be dropped.
+          write(paste("--- Dropping", var, "\n"), file = "");
+          # Modify the formulat to drop the chosen variable (by subtracting it from the current formula).
+          f <- formula(current);
+          f <- as.formula(paste(f[2], "~", paste(f[3], var, sep = " - ")), env = environment(f));
+          # Fit the modified model and loop.
+          current <- lm(f, data);
+          next;
+        }
+      }
+      # If we get here, we failed to drop a term; try adding one.
+      # Note: add1 throws an error if nothing can be added (current == full), which we trap with tryCatch.
+      a <- tryCatch(
+        add1(current, full, test = "F"),
+        error = function(e) NULL
+      );
+      if (is.null(a)) {
+        # There are no unused variables (or something went splat), so we bail out.
+        break;
+      }
+      break;
+    }
+    current
+  }
+
+
+bwd.model = bw.stepwise(full.model = log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender + Age*Alcohol12PlusYr + Age*AlcoholDay + Age*AlcoholYear,alpha.to.rm = 0.1, data=sample)
+```
+
+```{r}
+summary(bwd.model)
+```
+## Model Prediction Test
+```{r}
+smp_size <- floor(0.5 * nrow(sample))
+
+set.seed(123)
+train_ind <- sample(seq_len(nrow(sample)), size = smp_size)
+
+train_dplyr <- sample[train_ind, ]
+test_dplyr <- sample[-train_ind, ]
+
+train_dplyr <- na.omit(train_dplyr)
+test_dplyr <- na.omit(test_dplyr)
+
+predict_train_dplyr = lm(log(BPSysAve) ~ AlcoholDay + AlcoholYear + Alcohol12PlusYr + Age + BMI + Gender + Age*Alcohol12PlusYr + Age*AlcoholDay + Age*AlcoholYear, data = train_dplyr)
+
+
+
+test_train_dplyr <- predict(predict_train_dplyr, newdata = train_dplyr)
+test_test_dplyr <- predict(predict_train_dplyr, newdata = test_dplyr)
+
+exp_train_dplyr <- exp(test_train_dplyr)
+exp_test_dplyr <- exp(test_test_dplyr)
+
+rmse_train_dplyr <- sqrt(mean((train_dplyr$BPSysAve - exp_train_dplyr)^2))
+rmse_test_dplyr <- sqrt(mean((test_dplyr$BPSysAve - exp_test_dplyr)^2))
+
+print("Training RMSE:")
+print(rmse_train_dplyr)
+
+print("Testing RMSE:")
+print(rmse_test_dplyr)
+```
